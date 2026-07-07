@@ -15,27 +15,23 @@ jobs:
 
       - name: Start RustDesk & Get Credentials
         run: |
-          # RustDesk ko background me start karna
-          open -a RustDesk
+          # 'open -a' ki jagah directly binary path se background me start karenge
+          /Applications/RustDesk.app/Contents/MacOS/RustDesk --service &
           sleep 10
           
-          # RustDesk ki ID aur Password nikalna logs se ya config se
-          # Note: macOS sandbox me kabhi-kabhi automatic id nahi milti, 
-          # Isliye hum apna custom password set kar dete hain.
-          sudo rustdesk --password "SecureGUI2026"
+          # Custom password set karna bina sudo issue ke
+          /Applications/RustDesk.app/Contents/MacOS/RustDesk --password "SecureGUI2026"
           
           echo "=========================================="
           echo "RustDesk Password Set To: SecureGUI2026"
           echo "Aapko apne RustDesk app me is Runner ki ID daalni hogi."
-          echo "ID check karne ke liye niche live system status dekhein."
           echo "=========================================="
 
       - name: Display RustDesk ID and Keep Alive
         run: |
           # Loop jo ID read karne ki koshish karega aur session active rakhega
           for i in {1..50}; do
-            if [ -f "$HOME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" ]; then
-               cat "$HOME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" | grep id || true
-            fi
+            # RustDesk ki native command se direct ID print karwana
+            /Applications/RustDesk.app/Contents/MacOS/RustDesk --get-id || true
             sleep 30
           done
