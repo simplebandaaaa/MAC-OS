@@ -13,11 +13,25 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Install Chrome and Chrome Remote Desktop
+    - name: Download and Install Chrome & Chrome Remote Desktop Officially
       run: |
+        # Google Chrome already installed hota hai, fir bhi ensure kar lete hain
         export HOMEBREW_NO_AUTO_UPDATE=1
-        brew install --cask google-chrome --force
-        NONINTERACTIVE=1 brew install --cask chrome-remote-desktop-host
+        brew install --cask google-chrome --force || true
+        
+        # CRD ka official macOS package (.pkg) direct Google ke server se download karenge
+        echo "Downloading official Chrome Remote Desktop PKG..."
+        curl -L -o json.dmg "https://dl.google.com/chrome-remote-desktop/chromeremotedesktop.dmg"
+        
+        # DMG ko mount karenge
+        hdiutil attach json.dmg
+        
+        # PKG installer ko system root par silently install karenge (Bina brew ke jhanjhat ke)
+        echo "Installing PKG package..."
+        sudo installer -pkg "/Volumes/Chrome Remote Desktop/Chrome Remote Desktop Host.pkg" -target /
+        
+        # DMG unmount karenge
+        hdiutil detach "/Volumes/Chrome Remote Desktop"
 
     - name: Configure and Start Remote Desktop
       run: |
@@ -32,29 +46,10 @@ jobs:
         
         echo "Extracted Code: $CODE"
         
-        # macOS par CRD dhoondhne ke alag alag paths ko test karna
-        CRD_PATH=""
-        PATHS=(
-          "/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
-          "/Applications/Chrome Remote Desktop Host.app/Contents/MacOS/remotedesktop_host"
-          "/Library/CoreMediaIO/Plug-Ins/DAL/" # Backup check
-        )
+        # Official PKG installation ke baad binary isi exact location par aati hai
+        CRD_PATH="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
         
-        for p in "${PATHS[@]}"; do
-          if [ -f "$p" ]; then
-            CRD_PATH="$p"
-            break
-          fi
-        done
-        
-        # Agar path na mile, toh system me search maarna
-        if [ -z "$CRD_PATH" ]; then
-          CRD_PATH=$(sudo find / -name "remotedesktop_host" -type f 2>/dev/null | head -n 1)
-        fi
-        
-        echo "Using CRD Binary Path: $CRD_PATH"
-        
-        # Host ko register aur start karna
+        # Service ko configure aur start karna
         sudo "$CRD_PATH" \
           --host_id="" \
           --code="$CODE" \
