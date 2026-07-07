@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       crd_auth_code:
-        description: 'Paste the FULL command from CRD (DISPLAY=... or /Applications/...)'
+        description: 'Paste the FULL command from CRD'
         required: true
 
 jobs:
@@ -13,43 +13,33 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Download and Install Chrome & Chrome Remote Desktop Officially
+    - name: Download and Install Chrome & Chrome Remote Desktop
       run: |
-        # Google Chrome already installed hota hai, fir bhi ensure kar lete hain
-        export HOMEBREW_NO_AUTO_UPDATE=1
-        brew install --cask google-chrome --force || true
+        # Download official CRD DMG
+        curl -L -o crd.dmg "https://dl.google.com/chrome-remote-desktop/chromeremotedesktop.dmg"
         
-        # CRD ka official macOS package (.pkg) direct Google ke server se download karenge
-        echo "Downloading official Chrome Remote Desktop PKG..."
-        curl -L -o json.dmg "https://dl.google.com/chrome-remote-desktop/chromeremotedesktop.dmg"
+        # DMG mount karenge aur uska path save karenge
+        MOUNT_DIR=$(hdiutil attach crd.dmg | grep -o '/Volumes/.*' | head -n 1)
+        echo "Mounted at: $MOUNT_DIR"
         
-        # DMG ko mount karenge
-        hdiutil attach json.dmg
+        # System me installer script run karenge
+        sudo installer -pkg "$MOUNT_DIR/Chrome Remote Desktop Host.pkg" -target /
         
-        # PKG installer ko system root par silently install karenge (Bina brew ke jhanjhat ke)
-        echo "Installing PKG package..."
-        sudo installer -pkg "/Volumes/Chrome Remote Desktop/Chrome Remote Desktop Host.pkg" -target /
-        
-        # DMG unmount karenge
-        hdiutil detach "/Volumes/Chrome Remote Desktop"
+        # Clean up karenge
+        hdiutil detach "$MOUNT_DIR"
 
     - name: Configure and Start Remote Desktop
       run: |
         INPUT_CMD="${{ github.event.inputs.crd_auth_code }}"
         
-        # Code aur Redirect URL nikalna
         CODE=$(echo "$INPUT_CMD" | grep -oEi '(--code="[^"]+"|\-\-code=[^ ]+)' | sed 's/--code=//' | tr -d '"')
         REDIRECT=$(echo "$INPUT_CMD" | grep -oEi '(--redirect-url="[^"]+"|\-\-redirect-url=[^ ]+)' | sed 's/--redirect-url=//' | tr -d '"')
         NAME="GitHub-Actions-Mac"
         
         if [ -z "$REDIRECT" ]; then REDIRECT="https://remotedesktop.google.com/_/oauthredirect"; fi
         
-        echo "Extracted Code: $CODE"
-        
-        # Official PKG installation ke baad binary isi exact location par aati hai
         CRD_PATH="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
         
-        # Service ko configure aur start karna
         sudo "$CRD_PATH" \
           --host_id="" \
           --code="$CODE" \
