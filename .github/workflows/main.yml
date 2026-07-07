@@ -38,7 +38,17 @@ jobs:
         
         if [ -z "$REDIRECT" ]; then REDIRECT="https://remotedesktop.google.com/_/oauthredirect"; fi
         
-        CRD_PATH="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
+        # Path selection with fail-safe logic
+        PATH1="/Applications/Chrome Remote Desktop Host.app/Contents/MacOS/remotedesktop_host"
+        PATH2="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
+        
+        if [ -f "$PATH1" ]; then
+          CRD_PATH="$PATH1"
+        else
+          CRD_PATH="$PATH2"
+        fi
+        
+        echo "Executing using binary at: $CRD_PATH"
         
         sudo "$CRD_PATH" \
           --host_id="" \
