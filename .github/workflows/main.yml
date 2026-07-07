@@ -15,8 +15,9 @@ jobs:
     steps:
     - name: Install Chrome and Chrome Remote Desktop
       run: |
+        export HOMEBREW_NO_AUTO_UPDATE=1
         brew install --cask google-chrome --force
-        brew install --cask chrome-remote-desktop-host
+        NONINTERACTIVE=1 brew install --cask chrome-remote-desktop-host
 
     - name: Configure and Start Remote Desktop
       run: |
