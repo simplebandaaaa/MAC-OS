@@ -1,0 +1,78 @@
+name: macOS-Remote-Access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-mac-access:
+    # Windows-latest ki jagah macos-latest use karenge
+    runs-on: macos-latest
+    timeout-minutes: 60 # Safe limit taaki account ban na ho
+
+    steps:
+      - name: Configure macOS Screen Sharing (VNC)
+        run: |
+          # Screen Sharing service ko turn on karna
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # VNC access ke liye legacy support enable karna (VNC clients ke liye)
+          sudo defaults write /Library/Preferences/com.apple.RemoteManagement VNCAlwaysStart -bool true
+
+      - name: Create Remote User
+        run: |
+          # Password fetch karna (Secret se ya fallback)
+          PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
+          if [ -z "$PASSWORD" ]; then
+              PASSWORD="SecurePass@2026!"
+          fi
+          
+          # macOS me 'runner' user default hota hai, hum uska password change karenge remote access ke liye
+          echo "runner:$PASSWORD" | sudo chpasswd
+          
+          # Environment variable me save karna bina log me leak kiye
+          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          # macOS par Tailscale install karne ke liye Homebrew sabse best hai
+          brew install tailscale
+          # Tailscale background service start karna
+          sudo brew services start tailscale
+
+      - name: Establish Tailscale Connection
+        run: |
+          # Tailscale connect karna
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
+          
+          # IP Address get karna
+          TS_IP=""
+          RETRIES=0
+          while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
+              TS_IP=$(tailscale ip -4)
+              sleep 5
+              RETRIES=$((RETRIES+1))
+          done
+          
+          if [ -z "$TS_IP" ]; then
+              echo "Tailscale IP assignment failed."
+              exit 1
+          fi
+          
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+
+      - name: Maintain Connection & Show Details
+        run: |
+          echo ""
+          echo "=== macOS REMOTE ACCESS ==="
+          echo "VNC Address: $TAILSCALE_IP"
+          echo "Username: runner"
+          # Security ke liye password direct print nahi kar rahe hain log me
+          echo "Password: [Aapka Secret Password ya 'SecurePass@2026!']"
+          echo "==========================="
+          echo ""
+          
+          # 45 minutes tak session active rakhne ke liye loop (Safe zone)
+          for i in {1..9}; do
+              echo "[$(date)] Session Active..."
+              sleep 300
+          done
