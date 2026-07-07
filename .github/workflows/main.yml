@@ -1,75 +1,41 @@
-name: macOS-Remote-Access
+name: macOS-GUI-RustDesk
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-mac-access:
+  gui-access:
     runs-on: macos-latest
     timeout-minutes: 60
 
     steps:
-      - name: Configure macOS Screen Sharing (VNC)
+      - name: Install RustDesk
         run: |
-          # Remote Management and Screen Sharing ko configure aur activate karna
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -clientopts -setvnclegacy -vnclegacy yes \
-            -clientopts -setvncpw -vncpw "SecurePass@2026!" \
-            -restart -agent -privs -all
+          brew install --cask rustdesk
 
-      - name: Change Remote User Password
+      - name: Start RustDesk & Get Credentials
         run: |
-          PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
-          if [ -z "$PASSWORD" ]; then
-              PASSWORD="SecurePass@2026!"
-          fi
+          # RustDesk ko background me start karna
+          open -a RustDesk
+          sleep 10
           
-          # macOS native way to change password for the 'runner' user
-          sudo sysadminctl -adminUser runner -adminPassword "" -resetPasswordFor runner -newPassword "$PASSWORD"
+          # RustDesk ki ID aur Password nikalna logs se ya config se
+          # Note: macOS sandbox me kabhi-kabhi automatic id nahi milti, 
+          # Isliye hum apna custom password set kar dete hain.
+          sudo rustdesk --password "SecureGUI2026"
           
-          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+          echo "=========================================="
+          echo "RustDesk Password Set To: SecureGUI2026"
+          echo "Aapko apne RustDesk app me is Runner ki ID daalni hogi."
+          echo "ID check karne ke liye niche live system status dekhein."
+          echo "=========================================="
 
-      - name: Install and Start Tailscale
+      - name: Display RustDesk ID and Keep Alive
         run: |
-          # Homebrew se Tailscale install karna
-          brew install tailscale
-          
-          # tailscaled daemon ko background me manual start karna (CI safe method)
-          sudo tailscaled --state=mem: &
-          sleep 5
-
-      - name: Establish Tailscale Connection
-        run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
-          
-          TS_IP=""
-          RETRIES=0
-          while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
-              TS_IP=$(tailscale ip -4)
-              [[ -z "$TS_IP" ]] && sleep 5
-              RETRIES=$((RETRIES+1))
-          done
-          
-          if [ -z "$TS_IP" ]; then
-              echo "Tailscale IP assignment failed."
-              exit 1
-          fi
-          
-          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-
-      - name: Maintain Connection & Show Details
-        run: |
-          echo ""
-          echo "=== macOS REMOTE ACCESS ==="
-          echo "VNC Address: $TAILSCALE_IP"
-          echo "Username: runner"
-          echo "Password: [Aapka Secret Password ya 'SecurePass@2026!']"
-          echo "==========================="
-          echo ""
-          
-          # 45 minutes loop (9 * 300s = 45 mins)
-          for i in {1..9}; do
-              echo "[$(date)] Session Active..."
-              sleep 300
+          # Loop jo ID read karne ki koshish karega aur session active rakhega
+          for i in {1..50}; do
+            if [ -f "$HOME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" ]; then
+               cat "$HOME/Library/Preferences/com.carriez.RustDesk/RustDesk.toml" | grep id || true
+            fi
+            sleep 30
           done
