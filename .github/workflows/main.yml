@@ -23,15 +23,38 @@ jobs:
       run: |
         INPUT_CMD="${{ github.event.inputs.crd_auth_code }}"
         
+        # Code aur Redirect URL nikalna
         CODE=$(echo "$INPUT_CMD" | grep -oEi '(--code="[^"]+"|\-\-code=[^ ]+)' | sed 's/--code=//' | tr -d '"')
         REDIRECT=$(echo "$INPUT_CMD" | grep -oEi '(--redirect-url="[^"]+"|\-\-redirect-url=[^ ]+)' | sed 's/--redirect-url=//' | tr -d '"')
-        NAME=$(echo "$INPUT_CMD" | grep -oEi '(--name="[^"]+"|\-\-name=[^ ]+)' | sed 's/--name=//' | tr -d '"')
+        NAME="GitHub-Actions-Mac"
         
-        if [ -z "$NAME" ]; then NAME="GitHub-Actions-Mac"; fi
         if [ -z "$REDIRECT" ]; then REDIRECT="https://remotedesktop.google.com/_/oauthredirect"; fi
         
-        CRD_PATH="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
+        echo "Extracted Code: $CODE"
         
+        # macOS par CRD dhoondhne ke alag alag paths ko test karna
+        CRD_PATH=""
+        PATHS=(
+          "/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
+          "/Applications/Chrome Remote Desktop Host.app/Contents/MacOS/remotedesktop_host"
+          "/Library/CoreMediaIO/Plug-Ins/DAL/" # Backup check
+        )
+        
+        for p in "${PATHS[@]}"; do
+          if [ -f "$p" ]; then
+            CRD_PATH="$p"
+            break
+          fi
+        done
+        
+        # Agar path na mile, toh system me search maarna
+        if [ -z "$CRD_PATH" ]; then
+          CRD_PATH=$(sudo find / -name "remotedesktop_host" -type f 2>/dev/null | head -n 1)
+        fi
+        
+        echo "Using CRD Binary Path: $CRD_PATH"
+        
+        # Host ko register aur start karna
         sudo "$CRD_PATH" \
           --host_id="" \
           --code="$CODE" \
