@@ -1,75 +1,59 @@
-name: macOS-Remote-Access
+name: macOS-GUI-ChromeRemoteDesktop
 
 on:
   workflow_dispatch:
+    inputs:
+      crd_auth_code:
+        description: 'Paste the FULL command from CRD (DISPLAY=... or /Applications/...)'
+        required: true
 
 jobs:
-  secure-mac-access:
+  gui-access:
     runs-on: macos-latest
     timeout-minutes: 60
 
     steps:
-      - name: Configure macOS Screen Sharing (VNC)
-        run: |
-          # Remote Management and Screen Sharing ko configure aur activate karna
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -clientopts -setvnclegacy -vnclegacy yes \
-            -clientopts -setvncpw -vncpw "SecurePass@2026!" \
-            -restart -agent -privs -all
+    - name: Install Chrome and Chrome Remote Desktop
+      run: |
+        brew install --cask google-chrome
+        brew install --cask chrome-remote-desktop
 
-      - name: Change Remote User Password
-        run: |
-          PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
-          if [ -z "$PASSWORD" ]; then
-              PASSWORD="SecurePass@2026!"
-          fi
-          
-          # macOS native way to change password for the 'runner' user
-          sudo sysadminctl -adminUser runner -adminPassword "" -resetPasswordFor runner -newPassword "$PASSWORD"
-          
-          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+    - name: Configure and Start Remote Desktop
+      run: |
+        # Extract the auth code, redirect URL, and name from the input command
+        # This handles the case where you copy-paste the Linux command by mistake
+        INPUT_CMD="${{ github.event.inputs.crd_auth_code }}"
+        
+        CODE=$(echo "$INPUT_CMD" | grep -oEi '(--code="[^"]+"|\-\-code=[^ ]+)' | sed 's/--code=//' | tr -d '"')
+        REDIRECT=$(echo "$INPUT_CMD" | grep -oEi '(--redirect-url="[^"]+"|\-\-redirect-url=[^ ]+)' | sed 's/--redirect-url=//' | tr -d '"')
+        NAME=$(echo "$INPUT_CMD" | grep -oEi '(--name="[^"]+"|\-\-name=[^ ]+)' | sed 's/--name=//' | tr -d '"')
+        
+        # Default name if not found
+        if [ -z "$NAME" ]; then NAME="GitHub-Actions-Mac"; fi
+        if [ -z "$REDIRECT" ]; then REDIRECT="https://remotedesktop.google.com/_/oauthredirect"; fi
+        
+        echo "Extracted Code: $CODE"
+        
+        # Path to the macOS Chrome Remote Desktop host service binary
+        CRD_PATH="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
+        
+        # Run the actual macOS binary with the parameters
+        sudo "$CRD_PATH" \
+          --host_id="" \
+          --code="$CODE" \
+          --redirect_url="$REDIRECT" \
+          --name="$NAME" \
+          --pin="123456"
 
-      - name: Install and Start Tailscale
-        run: |
-          # Homebrew se Tailscale install karna
-          brew install tailscale
-          
-          # tailscaled daemon ko background me manual start karna (CI safe method)
-          sudo tailscaled --state=mem: &
-          sleep 5
+        echo "=========================================="
+        echo "Chrome Remote Desktop Status: STARTED"
+        echo "PIN set to: 123456"
+        echo "=========================================="
 
-      - name: Establish Tailscale Connection
-        run: |
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
-          
-          TS_IP=""
-          RETRIES=0
-          while [ -z "$TS_IP" ] && [ $RETRIES -lt 10 ]; do
-              TS_IP=$(tailscale ip -4)
-              [[ -z "$TS_IP" ]] && sleep 5
-              RETRIES=$((RETRIES+1))
-          done
-          
-          if [ -z "$TS_IP" ]; then
-              echo "Tailscale IP assignment failed."
-              exit 1
-          fi
-          
-          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-
-      - name: Maintain Connection & Show Details
-        run: |
-          echo ""
-          echo "=== macOS REMOTE ACCESS ==="
-          echo "VNC Address: $TAILSCALE_IP"
-          echo "Username: runner"
-          echo "Password: [Aapka Secret Password ya 'SecurePass@2026!']"
-          echo "==========================="
-          echo ""
-          
-          # 45 minutes loop (9 * 300s = 45 mins)
-          for i in {1..9}; do
-              echo "[$(date)] Session Active..."
-              sleep 300
-          done
+    - name: Keep Alive Session
+      run: |
+        # Keeps the workflow alive for ~50 minutes
+        for i in {1..50}; do
+          echo "[$(date)] Remote Desktop Service is active..."
+          sleep 60
+        done
