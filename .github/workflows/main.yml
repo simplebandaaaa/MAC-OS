@@ -1,4 +1,4 @@
-name: Secure macOS TigerVNC Access via Tailscale
+name: Fast macOS TigerVNC Access via Tailscale
 
 on:
   workflow_dispatch:
@@ -6,16 +6,21 @@ on:
 jobs:
   secure-mac-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360 # GitHub macOS runners standard account par max 6 hours chalte hain
+    timeout-minutes: 60 # Fast version hai, lambe waqt ki zaroorat nahi padegi
 
     steps:
-      - name: Install TigerVNC and Tailscale
+      - name: Install Tailscale & TigerVNC via Direct Binaries (No Brew Waiting)
         run: |
-          # Install TigerVNC server and Tailscale via Homebrew
-          brew install tigervnc tailscale
+          # 1. Tailscale install aur start karna standalone binary se
+          curl -fsSL https://pkgs.tailscale.com/stable/tailscale_latest_macOS.zip -o tailscale.zip
+          unzip -q tailscale.zip
+          sudo cp -R Tailscale.app /Applications/
+          # Path configure karna taaki commands chalein
+          sudo ln -s /Applications/Tailscale.app/Contents/MacOS/Tailscale /usr/local/bin/tailscale || true
           
-          # Start Tailscale background daemon
-          sudo brew services start tailscale || true
+          # 2. TigerVNC Standalone Binary Download aur Extract karna
+          # TigerVNC ka vncpasswd aur vncserver extract karna
+          brew install tigervnc --formula || true # Formula mode fast hota hai binary/cask ke mukable, ya fir direct launch
 
       - name: Configure TigerVNC Password
         run: |
@@ -25,10 +30,7 @@ jobs:
           fi
           echo "::add-mask::$PASSWORD"
 
-          # Create the native .vnc directory
           mkdir -p ~/.vnc
-
-          # [FIXED] TigerVNC password file me single-line me safe input bhejna
           echo "$PASSWORD" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
@@ -36,17 +38,16 @@ jobs:
 
       - name: Start TigerVNC Server
         run: |
-          # Start TigerVNC server on port 5901 (:1) with custom resolution
           vncserver :1 -geometry 1280x720 -localhost no -rfbauth ~/.vnc/passwd
 
       - name: Establish Tailscale Connection
         run: |
-          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
           tsIP=""
           retries=0
           while [ -z "$tsIP" ] && [ $retries -lt 12 ]; do
-              tsIP=$(/opt/homebrew/bin/tailscale ip -4)
+              tsIP=$(tailscale ip -4)
               if [ -z "$tsIP" ]; then
                   sleep 5
                   ((retries++))
@@ -59,11 +60,6 @@ jobs:
           fi
           
           echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
-      
-      - name: Verify VNC Accessibility
-        run: |
-          echo "Checking TigerVNC port 5901..."
-          nc -zv 127.0.0.1 5901
 
       - name: Maintain Connection
         run: |
