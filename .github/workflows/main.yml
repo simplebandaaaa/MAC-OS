@@ -6,7 +6,7 @@ on:
 jobs:
   secure-mac-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360
+    timeout-minutes: 360 # GitHub macOS runners standard account par max 6 hours chalte hain
 
     steps:
       - name: Install TigerVNC and Tailscale
@@ -28,15 +28,15 @@ jobs:
           # Create the native .vnc directory
           mkdir -p ~/.vnc
 
-          # Force write the password directly to TigerVNC's native password file
-          printf "%s\n%s\n\n" "$PASSWORD" "$PASSWORD" | vncpasswd -f > ~/.vnc/passwd
+          # [FIXED] TigerVNC password file me single-line me safe input bhejna
+          echo "$PASSWORD" | vncpasswd -f > ~/.vnc/passwd
           chmod 600 ~/.vnc/passwd
           
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Start TigerVNC Server
         run: |
-          # Start TigerVNC server on port 5901 (:1) with a custom geometry
+          # Start TigerVNC server on port 5901 (:1) with custom resolution
           vncserver :1 -geometry 1280x720 -localhost no -rfbauth ~/.vnc/passwd
 
       - name: Establish Tailscale Connection
