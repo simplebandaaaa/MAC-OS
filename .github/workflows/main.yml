@@ -6,50 +6,49 @@ on:
 jobs:
   secure-mac-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360 # GitHub macOS runners standard account par max 360 mins chalte hain
+    timeout-minutes: 360 # GitHub macOS runners standard account par max 6 hours chalte hain
 
     steps:
       - name: Configure Core macOS Screen Sharing (VNC)
         run: |
           # Screen Sharing / VNC service ko enable karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          
-          # VNC Access ke liye port 5900 par firewall settings settings open karna (agar active ho)
-          # Note: macOS runners par default firewall aksar off hoti hai, par security layers allow karna behtar hai.
 
       - name: Create Remote User with Custom Password
         run: |
-          $password = "${{ secrets.MY_RDP_PASSWORD }}"
-          if ([string]::IsNullOrEmpty($password)) {
-              $password = "SecurePass@2026!"
-          }
+          # Password fallback logic for Bash
+          PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
+          if [ -z "$PASSWORD" ]; then
+              PASSWORD="SecurePass@2026!"
+          fi
 
-          # GitHub logs me password ko mask karne ke liye
-          echo "::add-mask::$password"
+          # GitHub logs me password mask karne ke liye
+          echo "::add-mask::$PASSWORD"
 
-          # macOS me 'macuser' naam ka naya admin user create karna
-          # GitHub runner par default user 'runner' hota hai, hum ussi ka password reset ya naya user bana sakte hain.
-          # Naya user banane ke bajay 'runner' ka password set karna sabse safe aur working tarika hai:
-          sudo dscl . -passwd /Users/runner "$password"
+          # 'runner' user ka password change karna
+          sudo dscl . -passwd /Users/runner "$PASSWORD"
           
-          # VNC (Screen Sharing) ke liye password configure karna
+          # VNC (Screen Sharing) par password apply karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
-            -clientopts -setvncpasswd -vncpasswd "$password" \
+            -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
             -restart -agent -privs -all
 
-          echo "MAC_PASSWORD=$password" >> $GITHUB_ENV
+          # Environment variable me save karna agle steps ke liye
+          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Install Tailscale on macOS
         run: |
-          # macOS par Homebrew ke zariye Tailscale asaani se install ho jata hai
+          # macOS par Homebrew ke zariye Tailscale install karna
           brew install tailscale
-          # Tailscale background service ko start karna
+          # Tailscale background daemon start karna
           sudo brew services start tailscale
+          # Symlink check/create karna taaki sudo me bhi tailscale command chale
+          sudo ln -s /opt/homebrew/bin/tailscale /usr/local/bin/tailscale || true
 
       - name: Establish Tailscale Connection
         run: |
-          # Tailscale ko up karna authentication key ke sath
+          # Tailscale ko auth key ke sath up karna
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
           tsIP=""
@@ -62,7 +61,7 @@ jobs:
               fi
           done
           
-          if [ -z "$tsIP" ]; then
+          if [ -z "$tsIP" ] || [ "$tsIP" = "tailscale: command not found" ]; then
               echo "Tailscale IP assignment failed. Exiting."
               exit 1
           fi
