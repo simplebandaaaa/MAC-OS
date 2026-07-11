@@ -25,10 +25,10 @@ jobs:
           fi
           echo "::add-mask::$PASSWORD"
 
-          # Native Screen Sharing plist load karna
+          # Native Screen Sharing active karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
           
-          # Direct global VNC password set karna
+          # Direct global VNC password inject karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
@@ -38,14 +38,13 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # [FIX] Tailscale ki background service (daemon) ko pehle system me force start karna
-          sudo launchctl load -w /Library/LaunchDaemons/com.tailscale.tailscaled.plist || true
-          sudo /Applications/Tailscale.app/Contents/MacOS/tailscaled > /dev/null 2>&1 &
+          # [Bypass launchctl] tailscaled daemon ko background me directly force start karna
+          sudo nohup /Applications/Tailscale.app/Contents/MacOS/tailscaled --tun=userspace-tun > /dev/null 2>&1 &
           
-          # Daemon ko load hone ke liye thoda time dena
-          sleep 8
+          # Daemon ke boot hone ka wait karna
+          sleep 10
 
-          # Ab Tailscale ko securely login bypass auth key ke sath connect karna
+          # Tailscale connection up karna
           sudo /Applications/Tailscale.app/Contents/MacOS/Tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID --accept-dns=false &
           
           sleep 10
