@@ -6,7 +6,7 @@ on:
 jobs:
   secure-mac-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360 # GitHub max time limit
+    timeout-minutes: 360
 
     steps:
       - name: Configure Core macOS Screen Sharing & Set Password
@@ -17,35 +17,32 @@ jobs:
               PASSWORD="SecurePass@2026!"
           fi
 
-          # Password mask karna taaki logs me na dikhe
           echo "::add-mask::$PASSWORD"
 
-          # [FIX] Default administrator 'runner' ka password change karne ka safe tarika
-          echo "$PASSWORD" | sudo passwd --stdin runner || echo "runner:$PASSWORD" | sudo chpasswd
+          # [FIXED] macOS ka official tool password reset karne ke liye (No dscl, No passwd)
+          sudo sysadminctl -adminUser runner -adminPassword "" -resetPasswordFor runner -newPassword "$PASSWORD"
 
-          # Screen Sharing (VNC) active karna aur usme yahi password sync karna
+          # Screen Sharing (VNC) active karna aur restart karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # VNC Access configurations update karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
             -restart -agent -privs -all
 
-          # Auto-login default runner user ke liye set karna taaki black screen na aaye
+          # Headless black screen ko bypass karne ke liye auto-login trigger karna
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "runner"
           
-          # Environment save karna agle steps ke liye
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Install Tailscale on macOS
         run: |
-          # Homebrew se tailscale install karna
           brew install tailscale
-          # Tailscale background service start karna (sudo errors bypass karne ke liye bina sudo ke wrapper up karenge)
           sudo brew services start tailscale || true
 
       - name: Establish Tailscale Connection
         run: |
-          # Tailscale connect karna
           sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
           tsIP=""
