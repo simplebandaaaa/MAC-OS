@@ -9,9 +9,8 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Configure Core macOS Screen Sharing & Set Password
+      - name: Configure Core macOS Screen Sharing & Force VNC Password
         run: |
-          # Fallback password logic
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
               PASSWORD="SecurePass@2026!"
@@ -19,21 +18,19 @@ jobs:
 
           echo "::add-mask::$PASSWORD"
 
-          # [FIXED] macOS ka official tool password reset karne ke liye (No dscl, No passwd)
-          sudo sysadminctl -adminUser runner -adminPassword "" -resetPasswordFor runner -newPassword "$PASSWORD"
+          # 1. Screen Sharing service load karna
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
 
-          # Screen Sharing (VNC) active karna aur restart karna
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          
-          # VNC Access configurations update karna
+          # 2. Complete legacy VNC password configuration overwrite karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
             -restart -agent -privs -all
 
-          # Headless black screen ko bypass karne ke liye auto-login trigger karna
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "runner"
+          # 3. Direct VNC setting ko default preference files me write karna (for bypass)
+          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password "$PASSWORD"
           
+          # Environment save karna
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Install Tailscale on macOS
@@ -66,18 +63,12 @@ jobs:
         run: |
           echo "Checking VNC port 5900..."
           nc -zv 127.0.0.1 5900
-          if [ $? -ne 0 ]; then
-              echo "VNC service not active"
-              exit 1
-          fi
-          echo "VNC is ready!"
-
+          
       - name: Maintain Connection
         run: |
           echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
           echo "Connection URL: vnc://$TAILSCALE_IP"
-          echo "Username      : runner"
-          echo "Password      : $MAC_PASSWORD"
+          echo "VNC Password  : $MAC_PASSWORD"
           echo "========================================\n"
           
           while true; do
