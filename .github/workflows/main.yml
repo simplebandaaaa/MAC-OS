@@ -9,11 +9,6 @@ jobs:
     timeout-minutes: 360 # GitHub macOS runners standard account par max 6 hours chalte hain
 
     steps:
-      - name: Configure Core macOS Screen Sharing (VNC)
-        run: |
-          # Screen Sharing / VNC service ko background me enable karna
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-
       - name: Create Remote User with Custom Password
         run: |
           # Password fallback logic for Bash
@@ -25,11 +20,11 @@ jobs:
           # GitHub logs me password mask karne ke liye
           echo "::add-mask::$PASSWORD"
 
-          # 1. Ek free Unique ID (UID) dhoondna naye user ke liye (macOS me unique ID zaroori hai)
+          # 1. Ek free Unique ID (UID) dhoondna naye user ke liye
           NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -n 1)
           NEW_UID=$((NEXT_UID + 1))
 
-          # 2. 'vncuser' naam ka naya account create karna (Bina kisi old password requirement ke)
+          # 2. 'vncuser' naam ka naya account create karna
           sudo dscl . -create /Users/vncuser
           sudo dscl . -create /Users/vncuser UserShell /bin/zsh
           sudo dscl . -create /Users/vncuser RealName "Remote User"
@@ -40,17 +35,28 @@ jobs:
           # 3. Naye user ka password set karna
           sudo dscl . -passwd /Users/vncuser "$PASSWORD"
           
-          # 4. Naye user ko Admin (sudoers) group me add karna
+          # 4. Naye user ko Admin group me add karna
           sudo dscl . -append /Groups/admin GroupMembership vncuser
-
-          # VNC (Screen Sharing) ko naye user ke sath configure karna
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
-            -restart -agent -privs -all
 
           # Environment variable me save karna agle steps ke liye
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
+
+      - name: Configure Core macOS Screen Sharing & Auto-Login
+        run: |
+          # 1. Screen Sharing / VNC daemon ko enable aur force start karna
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # 2. VNC (Screen Sharing) par password aur permissions apply karna
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -clientopts -setvncpasswd -vncpasswd "$MAC_PASSWORD" \
+            -restart -agent -privs -all
+
+          # 3. Headless black screen ko fix karne ke liye auto-login trigger karna
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "vncuser"
+          
+          # 4. Graphical Window Server ko refresh karke initialize karna
+          sudo launchctl kickstart -kp system/com.apple.WindowServer || true
 
       - name: Install Tailscale on macOS
         run: |
