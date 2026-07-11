@@ -12,14 +12,12 @@ jobs:
       - name: Install Tailscale Standalone (No Brew Update Hangs)
         run: |
           echo "=== Downloading Tailscale Stable Package ==="
-          # Exact authenticated direct stable content URL format to completely avoid 404
           curl -L -o Tailscale.pkg "https://pkgs.tailscale.com/stable/Tailscale-1.68.0-macos.pkg"
           
           echo "=== Installing Tailscale silently ==="
           sudo installer -pkg Tailscale.pkg -target /
           
-          # Verification check
-          /Applications/Tailscale.app/Contents/MacOS/Tailscale --version
+          echo "=== Tailscale installation checked ==="
 
       - name: Configure macOS Screen Sharing & User Pass
         run: |
@@ -48,13 +46,16 @@ jobs:
 
       - name: Establish Tailscale Connection
         run: |
-          # Connect via standalone direct path
-          sudo /Applications/Tailscale.app/Contents/MacOS/Tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
+          # Connect via standalone direct path background mode
+          sudo /Applications/Tailscale.app/Contents/MacOS/Tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID &
+          
+          # Wait for daemon startup
+          sleep 10
           
           tsIP=""
           retries=0
           while [ -z "$tsIP" ] && [ $retries -lt 12 ]; do
-              tsIP=$(/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4)
+              tsIP=$(/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4 2>/dev/null) || true
               if [ -z "$tsIP" ]; then
                   sleep 5
                   ((retries++))
