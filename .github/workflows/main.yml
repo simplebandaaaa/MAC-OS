@@ -9,17 +9,15 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Install Tailscale Standalone (No Brew Update Hangs)
+      - name: Install Tailscale Standalone
         run: |
           echo "=== Downloading Tailscale Stable Package ==="
           curl -L -o Tailscale.pkg "https://pkgs.tailscale.com/stable/Tailscale-1.68.0-macos.pkg"
           
           echo "=== Installing Tailscale silently ==="
           sudo installer -pkg Tailscale.pkg -target /
-          
-          echo "=== Tailscale installation checked ==="
 
-      - name: Configure macOS Screen Sharing & User Pass
+      - name: Configure macOS Screen Sharing (Bypass Account Password)
         run: |
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
@@ -27,29 +25,21 @@ jobs:
           fi
           echo "::add-mask::$PASSWORD"
 
-          # Native directory utility se safe override
-          sudo dscl /Local/Default -passwd /Users/runner "$PASSWORD"
-
-          # Native Screen Sharing plist launch options force activate
+          # Native Screen Sharing plist load karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
           
-          # Remote agent setup config update
+          # [FIX] Bina runner user ka password badle, direct ek global VNC password set karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
             -restart -agent -privs -all
 
-          # Auto-login setup for headless server rendering
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "runner"
-          
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Establish Tailscale Connection
         run: |
-          # Connect via standalone direct path background mode
           sudo /Applications/Tailscale.app/Contents/MacOS/Tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID &
           
-          # Wait for daemon startup
           sleep 10
           
           tsIP=""
@@ -63,7 +53,7 @@ jobs:
           done
           
           if [ -z "$tsIP" ]; then
-              echo "Tailscale IP assignment failed. Exiting."
+              echo "Tailscale IP assignment failed."
               exit 1
           fi
           
@@ -73,7 +63,6 @@ jobs:
         run: |
           echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
           echo "Connection URL: vnc://$TAILSCALE_IP"
-          echo "Username      : runner"
           echo "VNC Password  : $MAC_PASSWORD"
           echo "========================================\n"
           
