@@ -1,70 +1,93 @@
-name: macOS-GUI-ChromeRemoteDesktop
+name: Secure macOS Remote Access via Tailscale
 
 on:
   workflow_dispatch:
-    inputs:
-      crd_auth_code:
-        description: 'Paste the FULL command from CRD'
-        required: true
 
 jobs:
-  gui-access:
+  secure-mac-vnc:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 360 # GitHub macOS runners standard account par max 360 mins chalte hain
 
     steps:
-    - name: Download and Install Chrome & Chrome Remote Desktop
-      run: |
-        # Download official CRD DMG
-        curl -L -o crd.dmg "https://dl.google.com/chrome-remote-desktop/chromeremotedesktop.dmg"
-        
-        # DMG mount karenge aur uska path save karenge
-        MOUNT_DIR=$(hdiutil attach crd.dmg | grep -o '/Volumes/.*' | head -n 1)
-        echo "Mounted at: $MOUNT_DIR"
-        
-        # System me installer script run karenge
-        sudo installer -pkg "$MOUNT_DIR/Chrome Remote Desktop Host.pkg" -target /
-        
-        # Clean up karenge
-        hdiutil detach "$MOUNT_DIR"
+      - name: Configure Core macOS Screen Sharing (VNC)
+        run: |
+          # Screen Sharing / VNC service ko enable karna
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          
+          # VNC Access ke liye port 5900 par firewall settings settings open karna (agar active ho)
+          # Note: macOS runners par default firewall aksar off hoti hai, par security layers allow karna behtar hai.
 
-    - name: Configure and Start Remote Desktop
-      run: |
-        INPUT_CMD="${{ github.event.inputs.crd_auth_code }}"
-        
-        CODE=$(echo "$INPUT_CMD" | grep -oEi '(--code="[^"]+"|\-\-code=[^ ]+)' | sed 's/--code=//' | tr -d '"')
-        REDIRECT=$(echo "$INPUT_CMD" | grep -oEi '(--redirect-url="[^"]+"|\-\-redirect-url=[^ ]+)' | sed 's/--redirect-url=//' | tr -d '"')
-        NAME="GitHub-Actions-Mac"
-        
-        if [ -z "$REDIRECT" ]; then REDIRECT="https://remotedesktop.google.com/_/oauthredirect"; fi
-        
-        # Path selection with fail-safe logic
-        PATH1="/Applications/Chrome Remote Desktop Host.app/Contents/MacOS/remotedesktop_host"
-        PATH2="/Library/PrivilegedHelperTools/com.google.remote_desktop.me2me_host.app/Contents/MacOS/remotedesktop_host"
-        
-        if [ -f "$PATH1" ]; then
-          CRD_PATH="$PATH1"
-        else
-          CRD_PATH="$PATH2"
-        fi
-        
-        echo "Executing using binary at: $CRD_PATH"
-        
-        sudo "$CRD_PATH" \
-          --host_id="" \
-          --code="$CODE" \
-          --redirect_url="$REDIRECT" \
-          --name="$NAME" \
-          --pin="123456"
+      - name: Create Remote User with Custom Password
+        run: |
+          $password = "${{ secrets.MY_RDP_PASSWORD }}"
+          if ([string]::IsNullOrEmpty($password)) {
+              $password = "SecurePass@2026!"
+          }
 
-        echo "=========================================="
-        echo "Chrome Remote Desktop Status: STARTED"
-        echo "PIN set to: 123456"
-        echo "=========================================="
+          # GitHub logs me password ko mask karne ke liye
+          echo "::add-mask::$password"
 
-    - name: Keep Alive Session
-      run: |
-        for i in {1..50}; do
-          echo "[$(date)] Remote Desktop Service is active..."
-          sleep 60
-        done
+          # macOS me 'macuser' naam ka naya admin user create karna
+          # GitHub runner par default user 'runner' hota hai, hum ussi ka password reset ya naya user bana sakte hain.
+          # Naya user banane ke bajay 'runner' ka password set karna sabse safe aur working tarika hai:
+          sudo dscl . -passwd /Users/runner "$password"
+          
+          # VNC (Screen Sharing) ke liye password configure karna
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on \
+            -clientopts -setvncpasswd -vncpasswd "$password" \
+            -restart -agent -privs -all
+
+          echo "MAC_PASSWORD=$password" >> $GITHUB_ENV
+
+      - name: Install Tailscale on macOS
+        run: |
+          # macOS par Homebrew ke zariye Tailscale asaani se install ho jata hai
+          brew install tailscale
+          # Tailscale background service ko start karna
+          sudo brew services start tailscale
+
+      - name: Establish Tailscale Connection
+        run: |
+          # Tailscale ko up karna authentication key ke sath
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
+          
+          tsIP=""
+          retries=0
+          while [ -z "$tsIP" ] && [ $retries -lt 12 ]; do
+              tsIP=$(tailscale ip -4)
+              if [ -z "$tsIP" ]; then
+                  sleep 5
+                  ((retries++))
+              fi
+          done
+          
+          if [ -z "$tsIP" ]; then
+              echo "Tailscale IP assignment failed. Exiting."
+              exit 1
+          fi
+          
+          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
+      
+      - name: Verify VNC Accessibility
+        run: |
+          echo "Checking if VNC port 5900 is listening locally..."
+          nc -zv 127.0.0.1 5900
+          if [ $? -ne 0 ]; then
+              echo "VNC service is not running on port 5900"
+              exit 1
+          fi
+          echo "VNC Connectivity Successful!"
+
+      - name: Maintain Connection
+        run: |
+          echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
+          echo "Connection URL: vnc://$TAILSCALE_IP"
+          echo "Username      : runner"
+          echo "Password      : $MAC_PASSWORD"
+          echo "========================================\n"
+          
+          while true; do
+              echo "[$(date)] Keep-Alive: macOS Remote Session is active..."
+              sleep 180
+          done
