@@ -1,4 +1,4 @@
-name: Secure macOS Remote Access via Tailscale
+name: Secure macOS TigerVNC Access via Tailscale
 
 on:
   workflow_dispatch:
@@ -9,34 +9,35 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Configure Core macOS Screen Sharing & Force VNC Password
+      - name: Install TigerVNC and Tailscale
+        run: |
+          # Install TigerVNC server and Tailscale via Homebrew
+          brew install tigervnc tailscale
+          
+          # Start Tailscale background daemon
+          sudo brew services start tailscale || true
+
+      - name: Configure TigerVNC Password
         run: |
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
               PASSWORD="SecurePass@2026!"
           fi
-
           echo "::add-mask::$PASSWORD"
 
-          # 1. Screen Sharing service load karna
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
+          # Create the native .vnc directory
+          mkdir -p ~/.vnc
 
-          # 2. Complete legacy VNC password configuration overwrite karna
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on \
-            -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
-            -restart -agent -privs -all
-
-          # 3. Direct VNC setting ko default preference files me write karna (for bypass)
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password "$PASSWORD"
+          # Force write the password directly to TigerVNC's native password file
+          printf "%s\n%s\n\n" "$PASSWORD" "$PASSWORD" | vncpasswd -f > ~/.vnc/passwd
+          chmod 600 ~/.vnc/passwd
           
-          # Environment save karna
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
-      - name: Install Tailscale on macOS
+      - name: Start TigerVNC Server
         run: |
-          brew install tailscale
-          sudo brew services start tailscale || true
+          # Start TigerVNC server on port 5901 (:1) with a custom geometry
+          vncserver :1 -geometry 1280x720 -localhost no -rfbauth ~/.vnc/passwd
 
       - name: Establish Tailscale Connection
         run: |
@@ -61,13 +62,13 @@ jobs:
       
       - name: Verify VNC Accessibility
         run: |
-          echo "Checking VNC port 5900..."
-          nc -zv 127.0.0.1 5900
-          
+          echo "Checking TigerVNC port 5901..."
+          nc -zv 127.0.0.1 5901
+
       - name: Maintain Connection
         run: |
           echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
-          echo "Connection URL: vnc://$TAILSCALE_IP"
+          echo "Connection URL: $TAILSCALE_IP:5901"
           echo "VNC Password  : $MAC_PASSWORD"
           echo "========================================\n"
           
