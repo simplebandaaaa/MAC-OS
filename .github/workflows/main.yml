@@ -6,83 +6,59 @@ on:
 jobs:
   secure-mac-vnc:
     runs-on: macos-latest
-    timeout-minutes: 360 # GitHub macOS runners standard account par max 6 hours chalte hain
+    timeout-minutes: 360 # GitHub max time limit
 
     steps:
-      - name: Create Remote User with Custom Password
+      - name: Configure Core macOS Screen Sharing & Set Password
         run: |
-          # Password fallback logic for Bash
+          # Fallback password logic
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
               PASSWORD="SecurePass@2026!"
           fi
 
-          # GitHub logs me password mask karne ke liye
+          # Password mask karna taaki logs me na dikhe
           echo "::add-mask::$PASSWORD"
 
-          # 1. Ek free Unique ID (UID) dhoondna naye user ke liye
-          NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -n 1)
-          NEW_UID=$((NEXT_UID + 1))
+          # [FIX] Default administrator 'runner' ka password change karne ka safe tarika
+          echo "$PASSWORD" | sudo passwd --stdin runner || echo "runner:$PASSWORD" | sudo chpasswd
 
-          # 2. 'vncuser' naam ka naya account create karna
-          sudo dscl . -create /Users/vncuser
-          sudo dscl . -create /Users/vncuser UserShell /bin/zsh
-          sudo dscl . -create /Users/vncuser RealName "Remote User"
-          sudo dscl . -create /Users/vncuser UniqueID "$NEW_UID"
-          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
-          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
-          
-          # 3. Naye user ka password set karna
-          sudo dscl . -passwd /Users/vncuser "$PASSWORD"
-          
-          # 4. Naye user ko Admin group me add karna
-          sudo dscl . -append /Groups/admin GroupMembership vncuser
-
-          # Environment variable me save karna agle steps ke liye
-          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
-
-      - name: Configure Core macOS Screen Sharing & Auto-Login
-        run: |
-          # 1. Screen Sharing / VNC daemon ko enable aur force start karna
+          # Screen Sharing (VNC) active karna aur usme yahi password sync karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          
-          # 2. VNC (Screen Sharing) par password aur permissions apply karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
-            -clientopts -setvncpasswd -vncpasswd "$MAC_PASSWORD" \
+            -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
             -restart -agent -privs -all
 
-          # 3. Headless black screen ko fix karne ke liye auto-login trigger karna
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "vncuser"
+          # Auto-login default runner user ke liye set karna taaki black screen na aaye
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "runner"
           
-          # 4. Graphical Window Server ko refresh karke initialize karna
-          sudo launchctl kickstart -kp system/com.apple.WindowServer || true
+          # Environment save karna agle steps ke liye
+          echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
       - name: Install Tailscale on macOS
         run: |
-          # macOS par Homebrew ke zariye Tailscale install karna
+          # Homebrew se tailscale install karna
           brew install tailscale
-          # Tailscale background daemon start karna
-          sudo brew services start tailscale
-          # Symlink check/create karna taaki sudo me bhi tailscale command chale
-          sudo ln -s /opt/homebrew/bin/tailscale /usr/local/bin/tailscale || true
+          # Tailscale background service start karna (sudo errors bypass karne ke liye bina sudo ke wrapper up karenge)
+          sudo brew services start tailscale || true
 
       - name: Establish Tailscale Connection
         run: |
-          # Tailscale ko auth key ke sath up karna
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
+          # Tailscale connect karna
+          sudo /opt/homebrew/bin/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
           
           tsIP=""
           retries=0
           while [ -z "$tsIP" ] && [ $retries -lt 12 ]; do
-              tsIP=$(tailscale ip -4)
+              tsIP=$(/opt/homebrew/bin/tailscale ip -4)
               if [ -z "$tsIP" ]; then
                   sleep 5
                   ((retries++))
               fi
           done
           
-          if [ -z "$tsIP" ] || [ "$tsIP" = "tailscale: command not found" ]; then
+          if [ -z "$tsIP" ]; then
               echo "Tailscale IP assignment failed. Exiting."
               exit 1
           fi
@@ -91,19 +67,19 @@ jobs:
       
       - name: Verify VNC Accessibility
         run: |
-          echo "Checking if VNC port 5900 is listening locally..."
+          echo "Checking VNC port 5900..."
           nc -zv 127.0.0.1 5900
           if [ $? -ne 0 ]; then
-              echo "VNC service is not running on port 5900"
+              echo "VNC service not active"
               exit 1
           fi
-          echo "VNC Connectivity Successful!"
+          echo "VNC is ready!"
 
       - name: Maintain Connection
         run: |
           echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
           echo "Connection URL: vnc://$TAILSCALE_IP"
-          echo "Username      : vncuser"
+          echo "Username      : runner"
           echo "Password      : $MAC_PASSWORD"
           echo "========================================\n"
           
