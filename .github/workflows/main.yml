@@ -1,92 +1,35 @@
-name: Secure macOS Remote Access via Tailscale
-
-on:
-  workflow_dispatch:
-
-jobs:
-  secure-mac-vnc:
-    runs-on: macos-latest
-    timeout-minutes: 360 # GitHub macOS runners standard account par max 6 hours chalte hain
-
-    steps:
-      - name: Configure Core macOS Screen Sharing (VNC)
+- name: Create Remote User with Custom Password
         run: |
-          # Screen Sharing / VNC service ko enable karna
-          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-
-      - name: Create Remote User with Custom Password
-        run: |
-          # Password fallback logic for Bash
+          # Password fallback logic
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
               PASSWORD="SecurePass@2026!"
           fi
 
-          # GitHub logs me password mask karne ke liye
           echo "::add-mask::$PASSWORD"
 
-          # 'runner' user ka password change karna
-          sudo dscl . -passwd /Users/runner "$PASSWORD"
+          # 1. Ek free Unique ID (UID) dhoondna naye user ke liye (macOS me unique ID zaroori hai)
+          NEXT_UID=$(dscl . -list /Users UniqueID | awk '{print $2}' | sort -n | tail -n 1)
+          NEW_UID=$((NEXT_UID + 1))
+
+          # 2. 'vncuser' naam ka naya account create karna
+          sudo dscl . -create /Users/vncuser
+          sudo dscl . -create /Users/vncuser UserShell /bin/zsh
+          sudo dscl . -create /Users/vncuser RealName "Remote User"
+          sudo dscl . -create /Users/vncuser UniqueID "$NEW_UID"
+          sudo dscl . -create /Users/vncuser PrimaryGroupID 20
+          sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
           
-          # VNC (Screen Sharing) par password apply karna
+          # 3. Naye user ka password set karna (Ye bina kisi purane password ke chalega)
+          sudo dscl . -passwd /Users/vncuser "$PASSWORD"
+          
+          # 4. Naye user ko Admin (sudoers) group me add karna
+          sudo dscl . -append /Groups/admin GroupMembership vncuser
+
+          # VNC (Screen Sharing) ko naye user ke sath configure karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
             -restart -agent -privs -all
 
-          # Environment variable me save karna agle steps ke liye
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
-
-      - name: Install Tailscale on macOS
-        run: |
-          # macOS par Homebrew ke zariye Tailscale install karna
-          brew install tailscale
-          # Tailscale background daemon start karna
-          sudo brew services start tailscale
-          # Symlink check/create karna taaki sudo me bhi tailscale command chale
-          sudo ln -s /opt/homebrew/bin/tailscale /usr/local/bin/tailscale || true
-
-      - name: Establish Tailscale Connection
-        run: |
-          # Tailscale ko auth key ke sath up karna
-          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID
-          
-          tsIP=""
-          retries=0
-          while [ -z "$tsIP" ] && [ $retries -lt 12 ]; do
-              tsIP=$(tailscale ip -4)
-              if [ -z "$tsIP" ]; then
-                  sleep 5
-                  ((retries++))
-              fi
-          done
-          
-          if [ -z "$tsIP" ] || [ "$tsIP" = "tailscale: command not found" ]; then
-              echo "Tailscale IP assignment failed. Exiting."
-              exit 1
-          fi
-          
-          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
-      
-      - name: Verify VNC Accessibility
-        run: |
-          echo "Checking if VNC port 5900 is listening locally..."
-          nc -zv 127.0.0.1 5900
-          if [ $? -ne 0 ]; then
-              echo "VNC service is not running on port 5900"
-              exit 1
-          fi
-          echo "VNC Connectivity Successful!"
-
-      - name: Maintain Connection
-        run: |
-          echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
-          echo "Connection URL: vnc://$TAILSCALE_IP"
-          echo "Username      : runner"
-          echo "Password      : $MAC_PASSWORD"
-          echo "========================================\n"
-          
-          while true; do
-              echo "[$(date)] Keep-Alive: macOS Remote Session is active..."
-              sleep 180
-          done
