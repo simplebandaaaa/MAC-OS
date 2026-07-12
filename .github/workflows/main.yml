@@ -31,19 +31,18 @@ jobs:
       - name: Download & Run Tailscale Static App (Universal Bypass)
         run: |
           echo "=== Downloading Tailscale Standalone Application ==="
-          # macOS app bundle framework package directly download karna bina package manager ke
           curl -L -o TailscaleApp.zip "https://pkgs.tailscale.com/stable/Tailscale-latest-macos.zip"
           
           echo "=== Unzipping Application Package ==="
           unzip -q TailscaleApp.zip
           
           echo "=== Launching Tailscaled Daemon in Userspace Mode ==="
-          # Direct binary run bina system level permissions hile
-          sudo ./Tailscale.app/Contents/MacOS/tailscaled --tun=userspace-tun > /dev/null 2>&1 &
+          # [FIXED] Force state file creation inside the current accessible runner directory to bypass macOS permission sandbox
+          sudo ./Tailscale.app/Contents/MacOS/tailscaled --tun=userspace-tun --state=tailscaled.state > /dev/null 2>&1 &
           sleep 10
           
           echo "=== Connecting to Tailscale Mesh Network ==="
-          sudo ./Tailscale.app/Contents/MacOS/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID --accept-dns=false &
+          sudo ./Tailscale.app/Contents/MacOS/tailscale --socket=runner up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID --accept-dns=false &
           sleep 12
           
           tsIP=""
