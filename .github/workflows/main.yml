@@ -1,4 +1,4 @@
-name: Secure macOS VNC via Tailscale Stable
+name: Secure macOS VNC via Tailscale Official
 
 on:
   workflow_dispatch:
@@ -9,7 +9,24 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Configure macOS Screen Sharing (Bypass Account Password)
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Tailscale Official GitHub Action (Yeh bina kisi permission ya tar error ke chalega)
+      - name: Connect to Tailscale Network
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
+
+      # 2. Get Tailscale IP
+      - name: Fetch Assigned Tailscale IP
+        id: ts-ip
+        run: |
+          tsIP=$(tailscale ip -4)
+          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
+
+      # 3. Setup macOS Screen Sharing (VNC) Password
+      - name: Configure macOS Screen Sharing
         run: |
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
@@ -17,10 +34,10 @@ jobs:
           fi
           echo "::add-mask::$PASSWORD"
 
-          # Built-in Screen Sharing active karna
+          # Screen Sharing Daemon initialize karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
           
-          # Direct global VNC password inject karna
+          # Custom VNC Password inject karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
@@ -28,45 +45,12 @@ jobs:
 
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
-      - name: Download & Run Tailscale Static Binary (Foolproof Method)
-        run: |
-          echo "=== Downloading Standalone Tailscale Static Binary ==="
-          # Pure independent bin folder uthana jo system se koi permission nahi mangta
-          curl -L -o tailscale.tgz https://pkgs.tailscale.com/stable/tailscale_1.68.0_macOS.tgz || curl -L -o tailscale.tgz https://pkgs.tailscale.com/stable/tailscale_1.66.4_macOS.tgz
-          tar -xzvf tailscale.tgz
-          
-          # Folder ke andar move karke binaries locate karna
-          cd tailscale_* || cd tailscale-*
-          
-          echo "=== Starting Tailscaled Daemon inside User-Space ==="
-          sudo ./tailscaled --tun=userspace-tun > /dev/null 2>&1 &
-          sleep 5
-          
-          echo "=== Establishing Tailscale Connection ==="
-          sudo ./tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID --accept-dns=false &
-          sleep 10
-          
-          tsIP=""
-          retries=0
-          while [ -z "$tsIP" ] && [ $retries -lt 12 ]; do
-              tsIP=$(sudo ./tailscale ip -4 2>/dev/null) || true
-              if [ -z "$tsIP" ]; then
-                  sleep 5
-                  ((retries++))
-              fi
-          done
-          
-          if [ -z "$tsIP" ]; then
-              echo "Tailscale IP assignment failed."
-              exit 1
-          fi
-          
-          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
-
-      - name: Maintain Connection
+      # 4. Maintain Active Session
+      - name: Maintain Active Connection
         run: |
           echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
           echo "Connection URL: vnc://$TAILSCALE_IP"
+          echo "Username      : (Leave Blank / Khali Chhodein)"
           echo "VNC Password  : $MAC_PASSWORD"
           echo "========================================\n"
           
