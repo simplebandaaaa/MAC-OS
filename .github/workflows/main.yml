@@ -1,4 +1,4 @@
-name: Secure macOS VNC via Tailscale Official
+name: Secure macOS VNC via Tailscale Static
 
 on:
   workflow_dispatch:
@@ -9,24 +9,7 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      # 1. Tailscale Official GitHub Action (Yeh bina kisi permission ya tar error ke chalega)
-      - name: Connect to Tailscale Network
-        uses: tailscale/github-action@v2
-        with:
-          authkey: ${{ secrets.TAILSCALE_AUTH_KEY }}
-
-      # 2. Get Tailscale IP
-      - name: Fetch Assigned Tailscale IP
-        id: ts-ip
-        run: |
-          tsIP=$(tailscale ip -4)
-          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
-
-      # 3. Setup macOS Screen Sharing (VNC) Password
-      - name: Configure macOS Screen Sharing
+      - name: Configure macOS Screen Sharing (Bypass Account Password)
         run: |
           PASSWORD="${{ secrets.MY_RDP_PASSWORD }}"
           if [ -z "$PASSWORD" ]; then
@@ -34,10 +17,10 @@ jobs:
           fi
           echo "::add-mask::$PASSWORD"
 
-          # Screen Sharing Daemon initialize karna
+          # Native Screen Sharing daemon load karna
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist || true
           
-          # Custom VNC Password inject karna
+          # Direct global VNC password set karna
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvncpasswd -vncpasswd "$PASSWORD" \
@@ -45,7 +28,41 @@ jobs:
 
           echo "MAC_PASSWORD=$PASSWORD" >> $GITHUB_ENV
 
-      # 4. Maintain Active Session
+      - name: Download & Run Tailscale Static App (Universal Bypass)
+        run: |
+          echo "=== Downloading Tailscale Standalone Application ==="
+          # macOS app bundle framework package directly download karna bina package manager ke
+          curl -L -o TailscaleApp.zip "https://pkgs.tailscale.com/stable/Tailscale-latest-macos.zip"
+          
+          echo "=== Unzipping Application Package ==="
+          unzip -q TailscaleApp.zip
+          
+          echo "=== Launching Tailscaled Daemon in Userspace Mode ==="
+          # Direct binary run bina system level permissions hile
+          sudo ./Tailscale.app/Contents/MacOS/tailscaled --tun=userspace-tun > /dev/null 2>&1 &
+          sleep 10
+          
+          echo "=== Connecting to Tailscale Mesh Network ==="
+          sudo ./Tailscale.app/Contents/MacOS/tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-runner-$GITHUB_RUN_ID --accept-dns=false &
+          sleep 12
+          
+          tsIP=""
+          retries=0
+          while [ -z "$tsIP" ] && [ $retries -lt 15 ]; do
+              tsIP=$(sudo ./Tailscale.app/Contents/MacOS/tailscale ip -4 2>/dev/null) || true
+              if [ -z "$tsIP" ]; then
+                  sleep 5
+                  ((retries++))
+              fi
+          done
+          
+          if [ -z "$tsIP" ]; then
+              echo "Tailscale Network Setup Failed."
+              exit 1
+          fi
+          
+          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
+
       - name: Maintain Active Connection
         run: |
           echo -e "\n=== macOS REMOTE ACCESS INFORMATION ==="
