@@ -5,7 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Multi-arch support block for Wine32
 RUN dpkg --add-architecture i386
 
-# Zorin OS के ऑफिशियल रिपॉजिटरीज़ जोड़ना (22.04 पर यह बिल्कुल परफेक्ट मैच होंगे)
+# Zorin OS के ऑफिशियल रिपॉजिटरीज़ जोड़ना
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common gnupg2 && \
     add-apt-repository -y ppa:zorinos/stable && \
     add-apt-repository -y ppa:zorinos/apps && \
@@ -37,9 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# ---- 🛠️ USER SETUP ---- #
-RUN mkdir -p /home/ubuntu && \
-    usermod -d /home/ubuntu -m ubuntu && \
+# ---- 🛠️ USER SETUP (FIXED FOR UBUNTU 22.04) ---- #
+# useradd का इस्तेमाल करके नया 'ubuntu' यूजर होम डायरेक्टरी के साथ बनाना
+RUN useradd -m -s /bin/bash ubuntu && \
     echo "ubuntu:ubuntu" | chpasswd && \
     usermod -aG sudo ubuntu && \
     echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
