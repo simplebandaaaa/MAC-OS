@@ -37,8 +37,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# ---- 🛠️ USER SETUP (FIXED FOR UBUNTU 22.04) ---- #
-# useradd का इस्तेमाल करके नया 'ubuntu' यूजर होम डायरेक्टरी के साथ बनाना
+# 🌐 GOOGLE CHROME INSTALLATION BLOCK 🌐
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
+    apt-get update && apt-get install -y --no-install-recommends ./google-chrome-stable_current_amd64.deb && \
+    rm google-chrome-stable_current_amd64.deb && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---- 🛠️ USER SETUP ---- #
 RUN useradd -m -s /bin/bash ubuntu && \
     echo "ubuntu:ubuntu" | chpasswd && \
     usermod -aG sudo ubuntu && \
@@ -52,9 +58,12 @@ RUN echo "allowed_users=anybody" > /etc/X11/Xwrapper.config && \
 RUN mkdir -p /var/run/dbus && dbus-uuidgen > /var/lib/dbus/machine-id
 
 # XRDP ऑप्टिमाइज़ेशन
-RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
+RUN sed -i 's/max_bpp=32/max_bpp=16/' /etc/xrdp/xrdp.ini && \
+    sed -i 's/crypt_level=high/crypt_level=none/' /etc/xrdp/xrdp.ini && \
     sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini && \
-    sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
+    sed -i 's/#use_compression=yes/use_compression=yes/' /etc/xrdp/xrdp.ini && \
+    echo "tcp_send_buffer_bytes=4194304" >> /etc/xrdp/xrdp.ini && \
+    echo "tcp_recv_buffer_bytes=4194304" >> /etc/xrdp/xrdp.ini
 
 # ---- 🛠️ ZORIN LITE CORE SESSION ---- #
 RUN echo "xfce4-session" > /etc/skel/.xsession && \
