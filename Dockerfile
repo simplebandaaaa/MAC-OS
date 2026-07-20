@@ -1,22 +1,23 @@
-FROM ubuntu:24.04
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Multi-arch support block for Wine32
 RUN dpkg --add-architecture i386
 
-# Zorin OS के ऑफिशियल रिपॉजिटरीज़ और Firefox PPA जोड़ना
+# Zorin OS के ऑफिशियल रिपॉजिटरीज़ जोड़ना (22.04 पर यह बिल्कुल परफेक्ट मैच होंगे)
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common gnupg2 && \
     add-apt-repository -y ppa:zorinos/stable && \
     add-apt-repository -y ppa:zorinos/apps && \
     add-apt-repository -y ppa:mozillateam/ppa && \
     printf 'Package: firefox*\nPin: release o=LP-PPA-mozillateam\nPin-Priority: 1001\n' > /etc/apt/preferences.d/mozilla-firefox
 
-# Zorin OS Lite (XFCE-based premium) डेस्कटॉप और थीम्स इंस्टॉल करना
+# सिस्टम अपडेट और लाइटवेट Zorin OS Lite इकोसिस्टम इंस्टॉल करना
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xrdp \
     xorgxrdp \
     xfce4 \
+    xfce4-goodies \
     xfce4-terminal \
     zorin-desktop-themes \
     zorin-icon-themes \
@@ -55,8 +56,7 @@ RUN sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini && \
     sed -i 's/security_layer=negotiate/security_layer=rdp/' /etc/xrdp/xrdp.ini && \
     sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
 
-# ---- 🛠️ ZORIN OS LITE SESSION FIX ---- #
-# XRDP को Zorin OS के लाइटवेट 2D सेशन को लोड करने के लिए मजबूर करना
+# ---- 🛠️ ZORIN LITE CORE SESSION ---- #
 RUN echo "xfce4-session" > /etc/skel/.xsession && \
     printf 'export XDG_CURRENT_DESKTOP=XFCE\nexport XDG_SESSION_TYPE=x11\nexport XDG_SESSION_DESKTOP=xfce\nexec xfce4-session\n' > /etc/skel/.xsessionrc
 
