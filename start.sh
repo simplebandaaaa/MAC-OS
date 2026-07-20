@@ -10,5 +10,5 @@ dbus-daemon --system --fork
 xrdp-sesman
 
 # 4. xrdp को फ़ोरग्राउंड में चलाएं
-echo "Launching Pure GNOME RDP Server..."
+echo "Launching Linux Mint Cinnamon RDP Server..."
 exec xrdp --nodaemon
